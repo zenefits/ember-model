@@ -30,6 +30,17 @@ function hasCachedValue(object, key) {
   }
 }
 
+function difference(targetArray, otherArray) {
+  var res = targetArray.slice(), ri;
+  for (var i = 0, l = otherArray.length; i < l; i++) {
+    ri = res.indexOf(otherArray[i]);
+    if(ri !== -1) {
+      res.removeAt(ri);
+    }
+  }
+  return res;
+}
+
 function isDescriptor(value) {
   // Ember < 1.11
   if (Ember.Descriptor !== undefined) {
@@ -95,6 +106,7 @@ Ember.Model = Ember.Object.extend(Ember.Evented, {
     var reference = this._reference,
         id = this.getPrimaryKey();
 
+    // A reference is { id, clientId, record }. We maintain a reference cache for each constructor.
     if (!reference) {
       reference = this.constructor._getOrCreateReferenceForId(id);
       set(reference, 'record', this);
@@ -131,6 +143,7 @@ Ember.Model = Ember.Object.extend(Ember.Evented, {
       relationshipMeta = relationship.meta();
 
       if (relationshipMeta.options.embedded) {
+        // (hliu) - relationship.load
         relationshipType = relationshipMeta.type;
         if (typeof relationshipType === "string") {
           relationshipType = Ember.get(Ember.lookup, relationshipType) || this.container.lookupFactory('model:'+ relationshipType);
@@ -399,12 +412,24 @@ Ember.Model.reopenClass({
 
   _clientIdCounter: 1,
 
+  _partialAttributesHash: null,
+
+  isPartial: false,
+
   getAttributes: function() {
     this.proto(); // force class "compilation" if it hasn't been done.
-    var attributes = this._attributes || [];
+
+    var attributes;
+
+    if(get(this, 'isPartial')) {
+      return Object.keys(this._partialAttributesHash);
+    }
+
+    attributes = this._attributes || [];
     if (typeof this.superclass.getAttributes === 'function') {
       attributes = this.superclass.getAttributes().concat(attributes);
     }
+
     return attributes;
   },
 
@@ -415,6 +440,29 @@ Ember.Model.reopenClass({
       relationships = this.superclass.getRelationships().concat(relationships);
     }
     return relationships;
+  },
+
+  partial: function(partialAttributes) {
+    var partialModel = this.extend(),
+        attributes = this.getAttributes(),
+        unknownAttributes = difference(partialAttributes, attributes),
+        primaryKey = get(this, 'primaryKey'),
+        partialAttributesHash = {};
+
+    Ember.assert("Unknown attributes: " + unknownAttributes.toString(), unknownAttributes.length === 0);
+
+    var a;
+    for (var i = 0, l = partialAttributes.length; i < l; i++) {
+      a = partialAttributes[i];
+      partialAttributesHash[a] = true;
+    }
+    partialAttributesHash[primaryKey] = true;
+    
+    partialModel.reopenClass({
+      _partialAttributesHash: partialAttributesHash,
+      isPartial: true
+    });
+    return partialModel;
   },
 
   fetch: function(id) {
