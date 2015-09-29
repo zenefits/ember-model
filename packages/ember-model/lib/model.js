@@ -412,17 +412,20 @@ Ember.Model.reopenClass({
 
   _clientIdCounter: 1,
 
-  _partialAttributesHash: null,
+  _pathsHash: null,
 
-  isPartial: false,
+  _full: null,
+
+  isSub: false,
 
   getAttributes: function() {
     this.proto(); // force class "compilation" if it hasn't been done.
 
     var attributes;
 
-    if(get(this, 'isPartial')) {
-      return Object.keys(this._partialAttributesHash);
+    if(get(this, 'isSub')) {
+      // TODO:(hliu) Handle relationships
+      return Object.keys(this._pathsHash);
     }
 
     attributes = this._attributes || [];
@@ -442,27 +445,34 @@ Ember.Model.reopenClass({
     return relationships;
   },
 
-  partial: function(partialAttributes) {
-    var partialModel = this.extend(),
+  sub: function(paths) {
+    // TODO:(hliu) Handle relationships
+    var subModel = this.extend(),
         attributes = this.getAttributes(),
-        unknownAttributes = difference(partialAttributes, attributes),
+        unknownPaths = difference(paths, attributes),
         primaryKey = get(this, 'primaryKey'),
-        partialAttributesHash = {};
+        pathsHash = {};
 
-    Ember.assert("Unknown attributes: " + unknownAttributes.toString(), unknownAttributes.length === 0);
+    Ember.assert("Unknown paths: " + unknownPaths.toString(), unknownPaths.length === 0);
 
-    var a;
-    for (var i = 0, l = partialAttributes.length; i < l; i++) {
-      a = partialAttributes[i];
-      partialAttributesHash[a] = true;
+    pathsHash[primaryKey] = true;
+    for (var i = 0, l = paths.length; i < l; i++) {
+      pathsHash[paths[i]] = true;
     }
-    partialAttributesHash[primaryKey] = true;
     
-    partialModel.reopenClass({
-      _partialAttributesHash: partialAttributesHash,
-      isPartial: true
+    subModel.reopenClass({
+      _pathsHash: pathsHash,
+      _full: this.full(),
+      isSub: true
     });
-    return partialModel;
+    return subModel;
+  },
+
+  full: function() {
+    if(this._full === null) {
+      return this;
+    }
+    return this._full;
   },
 
   fetch: function(id) {
@@ -764,17 +774,24 @@ Ember.Model.reopenClass({
   },
 
   clearCache: function () {
-    this.sideloadedData = undefined;
-    this._referenceCache = undefined;
-    this._findAllRecordArray = undefined;
+    // TODO: (hliu) sideloaded data, record array
+    if(get(this, 'isSub')) {
+      this.full().clearCache();
+    } else {
+      this.sideloadedData = undefined;
+      this._findAllRecordArray = undefined;
+      this._setReferenceCache(undefined);
+    }
   },
 
   removeFromCache: function (key) {
     if (this.sideloadedData && this.sideloadedData[key]) {
       delete this.sideloadedData[key];
     }
-    if(this._referenceCache && this._referenceCache[key]) {
-      delete this._referenceCache[key];
+
+    var referenceCache = this._getReferenceCache();
+    if(referenceCache && referenceCache[key]) {
+      delete referenceCache[key];
     }
   },
 
@@ -822,8 +839,8 @@ Ember.Model.reopenClass({
   },
 
   forEachCachedRecord: function(callback) {
-    if (!this._referenceCache) { return; }
-    var ids = Object.keys(this._referenceCache);
+    if (!this._getReferenceCache()) { return; }
+    var ids = Object.keys(this._getReferenceCache());
     ids.map(function(id) {
       return this._getReferenceById(id).record;
     }, this).forEach(callback);
@@ -847,9 +864,17 @@ Ember.Model.reopenClass({
     }
   },
 
+  _getReferenceCache: function() {
+    return this.full()._referenceCache;
+  },
+
+  _setReferenceCache: function(value) {
+    this.full()._referenceCache = value;
+  },
+
   _getReferenceById: function(id) {
-    if (!this._referenceCache) { this._referenceCache = {}; }
-    return this._referenceCache[id];
+    if (!this._getReferenceCache()) { this._setReferenceCache({}); }
+    return this._getReferenceCache()[id];
   },
 
   _getOrCreateReferenceForId: function(id) {
@@ -863,13 +888,13 @@ Ember.Model.reopenClass({
   },
 
   _createReference: function(id) {
-    if (!this._referenceCache) { this._referenceCache = {}; }
+    if (!this._getReferenceCache()) { this._setReferenceCache({}); }
 
-    Ember.assert('The id ' + id + ' has already been used with another record of type ' + this.toString() + '.', !id || !this._referenceCache[id]);
+    Ember.assert('The id ' + id + ' has already been used with another record of type ' + this.toString() + '.', !id || !this._getReferenceCache()[id]);
 
     var reference = {
       id: id,
-      clientId: this._clientIdCounter++
+      clientId: this.full()._clientIdCounter++
     };
 
     this._cacheReference(reference);
@@ -878,12 +903,12 @@ Ember.Model.reopenClass({
   },
 
   _cacheReference: function(reference) {
-    if (!this._referenceCache) { this._referenceCache = {}; }
+    if (!this._getReferenceCache()) { this._setReferenceCache({}); }
 
     // if we're creating an item, this process will be done
     // later, once the object has been persisted.
     if (!Ember.isEmpty(reference.id)) {
-      this._referenceCache[reference.id] = reference;
+      this._getReferenceCache()[reference.id] = reference;
     }
   }
 });
