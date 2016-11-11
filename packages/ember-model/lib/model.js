@@ -40,6 +40,7 @@ function isDescriptor(value) {
 }
 
 Ember.run.queues.push('data');
+Ember.run.queues.push('save-data');
 
 Ember.Model = Ember.Object.extend(Ember.Evented, {
   isLoaded: true,
@@ -921,6 +922,15 @@ Ember.Model.reopenClass({
     // if we're creating an item, this process will be done
     // later, once the object has been persisted.
     if (!Ember.isEmpty(reference.id)) {
+      // there can be a race condition where you see a object in a hasMany
+      // before ember-model has finished processing the save for the object
+      // resulting in duplicate references
+      var existingRef = this._referenceCache[reference.id];
+      if (existingRef && existingRef.clientId !== reference.clientId) {
+        this.removeFromHasManyArrays(existingRef.record);
+        this.removeFromRecordArrays(existingRef.record);
+      }
+      // add the reference to the cache
       this._referenceCache[reference.id] = reference;
     }
   }
