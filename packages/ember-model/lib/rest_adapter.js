@@ -118,7 +118,14 @@ Ember.RESTAdapter = Ember.Adapter.extend({
         noBatch = get(record.constructor, 'noBatch') || false,
         self = this;
 
-    return this._pushModRequest(url, record.toJSON(), "PUT", noBatch).then(function(data) {  // TODO: Some APIs may or may not return data
+    var json = record.toJSON();
+    if (!noBatch && record._dirtyAttributes != null) {
+      json = record._dirtyAttributes.reduce(function(obj, k) {
+        obj[k] = json[k];
+        return obj;
+      }, {});
+    }
+    return this._pushModRequest(url, json, "PUT", noBatch).then(function(data) {  // TODO: Some APIs may or may not return data
       self.didSaveRecord(record, data);
       return record;
     });
